@@ -1,0 +1,755 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Resume Triage — Job-Partitioned Async Design</title>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;500;700;800&family=JetBrains+Mono:wght@300;400;500;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #f5f0e8;
+    --surface: #ede8df;
+    --surface2: #e4ddd2;
+    --ink: #1a1612;
+    --ink2: #3d3830;
+    --muted: #8a8070;
+    --border: #cfc8bc;
+    --red: #c0392b;
+    --blue: #1a4a8a;
+    --green: #1a6b3a;
+    --amber: #b5620a;
+    --purple: #5b2d8a;
+    --teal: #0a6b6b;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: 'Syne', sans-serif;
+    font-size: 13px;
+    padding: 36px 28px;
+    min-height: 100vh;
+  }
+
+  .mono { font-family: 'JetBrains Mono', monospace; }
+
+  /* HEADER */
+  .hdr {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    align-items: start;
+    border-bottom: 3px solid var(--ink);
+    padding-bottom: 20px;
+    margin-bottom: 32px;
+    gap: 20px;
+  }
+  .hdr h1 {
+    font-size: 28px;
+    font-weight: 800;
+    letter-spacing: -1px;
+    line-height: 1.1;
+    color: var(--ink);
+  }
+  .hdr h1 span { color: var(--red); }
+  .hdr-sub { font-size: 12px; color: var(--muted); margin-top: 6px; font-family: 'JetBrains Mono', monospace; }
+  .hdr-badges { display: flex; flex-direction: column; gap: 6px; align-items: flex-end; }
+  .badge {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    padding: 4px 10px;
+    border: 1.5px solid;
+    border-radius: 2px;
+    font-weight: 500;
+  }
+  .badge-red { border-color: var(--red); color: var(--red); }
+  .badge-blue { border-color: var(--blue); color: var(--blue); }
+  .badge-green { border-color: var(--green); color: var(--green); }
+
+  /* SECTION LABEL */
+  .slabel {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9px;
+    text-transform: uppercase;
+    letter-spacing: 3px;
+    color: var(--muted);
+    margin-bottom: 14px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .slabel::before { content: '§'; color: var(--red); font-size: 11px; }
+  .slabel::after { content: ''; flex: 1; height: 1px; background: var(--border); }
+
+  /* CARDS */
+  .card {
+    background: var(--surface);
+    border: 1.5px solid var(--border);
+    border-radius: 4px;
+    padding: 16px;
+  }
+  .card-title {
+    font-size: 12px;
+    font-weight: 700;
+    margin-bottom: 12px;
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  .ct-dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+
+  /* GRIDS */
+  .g2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .g3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 14px; }
+  .mb20 { margin-bottom: 20px; }
+  .mb28 { margin-bottom: 28px; }
+  .mb36 { margin-bottom: 36px; }
+
+  /* MAIN FLOW DIAGRAM */
+  .flow {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 0;
+    margin-bottom: 36px;
+    border: 1.5px solid var(--border);
+    border-radius: 4px;
+    overflow: hidden;
+  }
+  .fstage {
+    padding: 16px 14px;
+    border-right: 1.5px solid var(--border);
+    position: relative;
+  }
+  .fstage:last-child { border-right: none; }
+
+  .fstage-num {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 28px;
+    font-weight: 700;
+    line-height: 1;
+    opacity: 0.12;
+    position: absolute;
+    top: 10px;
+    right: 12px;
+  }
+  .fstage-icon {
+    font-size: 20px;
+    margin-bottom: 8px;
+  }
+  .fstage-title {
+    font-size: 12px;
+    font-weight: 700;
+    margin-bottom: 6px;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+  }
+  .fstage-desc {
+    font-size: 11px;
+    color: var(--ink2);
+    line-height: 1.5;
+  }
+  .fstage-tag {
+    margin-top: 10px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9px;
+    padding: 3px 7px;
+    border-radius: 2px;
+    display: inline-block;
+    border: 1px solid;
+  }
+
+  .fs1 { background: #fff8f0; border-top: 3px solid var(--amber); }
+  .fs1 .fstage-tag { border-color: var(--amber); color: var(--amber); }
+  .fs2 { background: #f0f4ff; border-top: 3px solid var(--blue); }
+  .fs2 .fstage-tag { border-color: var(--blue); color: var(--blue); }
+  .fs3 { background: #f5f0ff; border-top: 3px solid var(--purple); }
+  .fs3 .fstage-tag { border-color: var(--purple); color: var(--purple); }
+  .fs4 { background: #f0fff8; border-top: 3px solid var(--teal); }
+  .fs4 .fstage-tag { border-color: var(--teal); color: var(--teal); }
+  .fs5 { background: #f0fff0; border-top: 3px solid var(--green); }
+  .fs5 .fstage-tag { border-color: var(--green); color: var(--green); }
+
+  /* STORAGE SCHEMA */
+  .schema-box {
+    background: #1a1612;
+    border-radius: 4px;
+    padding: 16px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    line-height: 1.8;
+    color: #cfc8bc;
+  }
+  .sk { color: #7ec8e3; }
+  .sv { color: #b5e4a0; }
+  .sc { color: #888; }
+  .st { color: #f0a060; }
+  .sp { color: #e07070; }
+
+  /* SKILL.md section */
+  .skillmd {
+    background: #1a1612;
+    border-radius: 4px;
+    padding: 20px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    line-height: 1.7;
+    color: #d4cfc8;
+    position: relative;
+    overflow: hidden;
+  }
+  .skillmd::before {
+    content: 'SKILL.md';
+    position: absolute;
+    top: 0; right: 0;
+    background: var(--amber);
+    color: #1a1612;
+    font-size: 9px;
+    font-weight: 700;
+    padding: 3px 10px;
+    border-radius: 0 4px 0 4px;
+    letter-spacing: 1px;
+  }
+  .md-h1 { color: #f5e642; font-size: 13px; font-weight: 700; }
+  .md-h2 { color: #7ec8e3; }
+  .md-bold { color: #f0a060; font-weight: 700; }
+  .md-dim { color: #555; }
+  .md-green { color: #b5e4a0; }
+  .md-red { color: #e07070; }
+  .md-comment { color: #666; font-style: italic; }
+
+  /* TRIGGER types */
+  .trigger-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .trigger-row:last-child { border-bottom: none; }
+  .t-icon {
+    font-size: 18px;
+    flex-shrink: 0;
+    width: 28px;
+    text-align: center;
+  }
+  .t-name { font-size: 12px; font-weight: 700; margin-bottom: 3px; }
+  .t-desc { font-size: 11px; color: var(--ink2); line-height: 1.4; }
+  .t-tag {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9px;
+    padding: 2px 6px;
+    border-radius: 2px;
+    margin-top: 5px;
+    display: inline-block;
+    font-weight: 500;
+  }
+
+  /* KV rows */
+  .kv { display: flex; justify-content: space-between; align-items: center; padding: 6px 0; border-bottom: 1px dashed var(--border); font-size: 11px; }
+  .kv:last-child { border-bottom: none; }
+  .kv-k { color: var(--muted); }
+  .kv-v { font-family: 'JetBrains Mono', monospace; color: var(--ink); font-size: 10px; }
+
+  /* SCORE OUTPUT */
+  .score-card {
+    border: 1.5px solid var(--border);
+    border-radius: 4px;
+    overflow: hidden;
+  }
+  .score-hdr {
+    background: var(--ink);
+    color: #f5f0e8;
+    padding: 8px 14px;
+    font-size: 10px;
+    font-family: 'JetBrains Mono', monospace;
+    display: flex;
+    justify-content: space-between;
+  }
+  .score-body { padding: 12px 14px; }
+  .score-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 8px;
+  }
+  .score-dim { font-size: 11px; color: var(--ink2); width: 140px; flex-shrink: 0; }
+  .score-bar-w { flex: 1; background: var(--surface2); height: 8px; border-radius: 2px; overflow: hidden; }
+  .score-bar { height: 100%; border-radius: 2px; }
+  .score-num { font-family: 'JetBrains Mono', monospace; font-size: 10px; width: 30px; text-align: right; }
+  .score-total {
+    margin-top: 10px;
+    padding-top: 10px;
+    border-top: 1px solid var(--border);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .score-total-label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; }
+  .score-total-num {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 22px;
+    font-weight: 700;
+    color: var(--green);
+  }
+
+  /* ARROW connector */
+  .arrow-row {
+    display: flex;
+    align-items: center;
+    gap: 0;
+    margin-bottom: 8px;
+  }
+  .arrow-box {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    padding: 5px 10px;
+    font-size: 10px;
+    font-family: 'JetBrains Mono', monospace;
+    color: var(--ink2);
+    flex-shrink: 0;
+  }
+  .arrow-line {
+    flex: 1;
+    height: 1px;
+    background: var(--border);
+    position: relative;
+  }
+  .arrow-line::after {
+    content: '▶';
+    position: absolute;
+    right: -6px;
+    top: -7px;
+    font-size: 10px;
+    color: var(--muted);
+  }
+
+  /* partition visual */
+  .partition-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 10px;
+    margin-top: 14px;
+  }
+  .pjob {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 10px;
+    position: relative;
+  }
+  .pjob-id {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9px;
+    color: var(--muted);
+    margin-bottom: 4px;
+  }
+  .pjob-title { font-size: 11px; font-weight: 700; margin-bottom: 6px; }
+  .pjob-cvs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 3px;
+  }
+  .cv-dot {
+    width: 10px; height: 10px;
+    border-radius: 2px;
+    background: var(--blue);
+    opacity: 0.6;
+  }
+  .cv-dot.new { background: var(--amber); opacity: 1; }
+  .cv-dot.scored { background: var(--green); opacity: 0.8; }
+  .pjob-count { font-family: 'JetBrains Mono', monospace; font-size: 9px; color: var(--muted); margin-top: 6px; }
+  .pjob-skill {
+    position: absolute;
+    top: 6px; right: 6px;
+    background: var(--amber);
+    color: #1a1612;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 8px;
+    padding: 1px 4px;
+    border-radius: 2px;
+  }
+
+  .info-box {
+    background: #fff8f0;
+    border: 1.5px solid var(--amber);
+    border-radius: 4px;
+    padding: 12px 16px;
+    font-size: 11px;
+    line-height: 1.6;
+    color: var(--ink2);
+    margin-bottom: 20px;
+  }
+  .info-box strong { color: var(--amber); }
+
+  /* footer */
+  .footer {
+    border-top: 2px solid var(--ink);
+    padding-top: 16px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    color: var(--muted);
+  }
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<div class="hdr">
+  <div>
+    <h1>Resume Triage<br><span>Job-Partitioned</span> Async Design</h1>
+    <div class="hdr-sub">// Apply → Store by Job ID → Trigger → SKILL.md Rules → Score → Shortlist</div>
+  </div>
+  <div class="hdr-badges">
+    <span class="badge badge-red">ASYNC · NOT REAL-TIME</span>
+    <span class="badge badge-blue">JOB_ID = PARTITION KEY</span>
+    <span class="badge badge-green">SKILL.md = SCORING RULES</span>
+  </div>
+</div>
+
+<!-- KEY INSIGHT -->
+<div class="info-box">
+  <strong>Architecture principle:</strong> When a candidate applies, we just <strong>store the CV under the Job ID</strong> — nothing else. Scoring is a separate async process triggered later (scheduled, manual, or threshold-based). This decouples ingestion from scoring, keeps ingestion cheap and fast, and lets you batch-score efficiently per job.
+</div>
+
+<!-- MAIN FLOW -->
+<div class="slabel mb20">End-to-End Flow</div>
+<div class="flow mb36">
+  <div class="fstage fs1">
+    <div class="fstage-num">01</div>
+    <div class="fstage-icon">📥</div>
+    <div class="fstage-title">Candidate Applies</div>
+    <div class="fstage-desc">Uploads CV via portal. System captures Job ID from the application URL/form.</div>
+    <div class="fstage-tag">HTTP POST /apply/{job_id}</div>
+  </div>
+  <div class="fstage fs2">
+    <div class="fstage-num">02</div>
+    <div class="fstage-icon">🗄️</div>
+    <div class="fstage-title">Store by Job ID</div>
+    <div class="fstage-desc">CV stored in Blob. Metadata row inserted: job_id, cv_path, applicant_id, status=PENDING.</div>
+    <div class="fstage-tag">status = PENDING</div>
+  </div>
+  <div class="fstage fs3">
+    <div class="fstage-num">03</div>
+    <div class="fstage-icon">⚡</div>
+    <div class="fstage-title">Score Trigger</div>
+    <div class="fstage-desc">Scheduled (nightly), manual (recruiter clicks), or threshold (N applicants hit). Queues all PENDING CVs for that Job ID.</div>
+    <div class="fstage-tag">trigger → queue</div>
+  </div>
+  <div class="fstage fs4">
+    <div class="fstage-num">04</div>
+    <div class="fstage-icon">📋</div>
+    <div class="fstage-title">Load Context</div>
+    <div class="fstage-desc">Fetch JD for this Job ID. Load SKILL.md rules for job category. Build scoring prompt. Parse CV.</div>
+    <div class="fstage-tag">JD + SKILL.md → prompt</div>
+  </div>
+  <div class="fstage fs5">
+    <div class="fstage-num">05</div>
+    <div class="fstage-icon">🏆</div>
+    <div class="fstage-title">Score & Rank</div>
+    <div class="fstage-desc">LLM scores each CV against JD using SKILL.md rubric. Composite score stored. Top-N surfaced to recruiter.</div>
+    <div class="fstage-tag">shortlist written back</div>
+  </div>
+</div>
+
+<!-- STORAGE SCHEMA + PARTITIONING VISUAL -->
+<div class="slabel mb20">Storage Design — Job ID as Partition Key</div>
+<div class="g2 mb28">
+
+  <!-- Schema -->
+  <div>
+    <div class="card-title" style="margin-bottom:10px;"><span class="ct-dot" style="background:var(--blue);"></span> Data Model</div>
+    <div class="schema-box">
+<span class="sc">-- JOB table</span><br>
+<span class="st">jobs</span> (<br>
+&nbsp;&nbsp;<span class="sk">job_id</span>       <span class="sv">UUID PRIMARY KEY</span>,<br>
+&nbsp;&nbsp;<span class="sk">title</span>        <span class="sv">TEXT</span>,<br>
+&nbsp;&nbsp;<span class="sk">jd_text</span>      <span class="sv">TEXT</span>,         <span class="sc">-- full JD</span><br>
+&nbsp;&nbsp;<span class="sk">skill_md_key</span> <span class="sv">TEXT</span>,         <span class="sc">-- which SKILL.md</span><br>
+&nbsp;&nbsp;<span class="sk">status</span>       <span class="sv">ENUM(OPEN,CLOSED)</span>,<br>
+&nbsp;&nbsp;<span class="sk">created_at</span>   <span class="sv">TIMESTAMP</span><br>
+);<br>
+<br>
+<span class="sc">-- APPLICATION table (partitioned by job_id)</span><br>
+<span class="st">applications</span> (<br>
+&nbsp;&nbsp;<span class="sk">app_id</span>       <span class="sv">UUID PRIMARY KEY</span>,<br>
+&nbsp;&nbsp;<span class="sk">job_id</span>       <span class="sv">UUID REFERENCES jobs</span>,  <span class="sc">← partition key</span><br>
+&nbsp;&nbsp;<span class="sk">cv_blob_path</span> <span class="sv">TEXT</span>,         <span class="sc">-- Azure Blob path</span><br>
+&nbsp;&nbsp;<span class="sk">cv_parsed</span>    <span class="sv">JSONB</span>,        <span class="sc">-- extracted fields</span><br>
+&nbsp;&nbsp;<span class="sk">score</span>        <span class="sv">FLOAT</span>,        <span class="sc">-- null until scored</span><br>
+&nbsp;&nbsp;<span class="sk">score_detail</span> <span class="sv">JSONB</span>,        <span class="sc">-- per-dimension</span><br>
+&nbsp;&nbsp;<span class="sk">status</span>       <span class="sv">ENUM(PENDING,SCORED,SHORTLISTED)</span>,<br>
+&nbsp;&nbsp;<span class="sk">applied_at</span>   <span class="sv">TIMESTAMP</span><br>
+) <span class="sp">PARTITION BY LIST (job_id)</span>;<br>
+<br>
+<span class="sc">-- Blob storage layout</span><br>
+<span class="sv">blob://cvs/{job_id}/{app_id}.pdf</span><br>
+<span class="sv">blob://skills/{category}/SKILL.md</span><br>
+    </div>
+  </div>
+
+  <!-- Partition Visual -->
+  <div>
+    <div class="card-title" style="margin-bottom:10px;"><span class="ct-dot" style="background:var(--amber);"></span> Job Buckets — Live View</div>
+    <div class="partition-grid">
+      <div class="pjob">
+        <div class="pjob-skill">SKILL.md</div>
+        <div class="pjob-id">JOB-4821</div>
+        <div class="pjob-title">Senior Data Engineer</div>
+        <div class="pjob-cvs">
+          <div class="cv-dot scored"></div><div class="cv-dot scored"></div><div class="cv-dot scored"></div>
+          <div class="cv-dot scored"></div><div class="cv-dot scored"></div><div class="cv-dot scored"></div>
+          <div class="cv-dot new"></div><div class="cv-dot new"></div>
+        </div>
+        <div class="pjob-count">6 scored · 2 pending</div>
+      </div>
+      <div class="pjob">
+        <div class="pjob-skill">SKILL.md</div>
+        <div class="pjob-id">JOB-4822</div>
+        <div class="pjob-title">AI Engineer</div>
+        <div class="pjob-cvs">
+          <div class="cv-dot new"></div><div class="cv-dot new"></div><div class="cv-dot new"></div>
+          <div class="cv-dot new"></div><div class="cv-dot new"></div>
+        </div>
+        <div class="pjob-count">0 scored · 5 pending</div>
+      </div>
+      <div class="pjob">
+        <div class="pjob-skill">SKILL.md</div>
+        <div class="pjob-id">JOB-4823</div>
+        <div class="pjob-title">ML Platform Lead</div>
+        <div class="pjob-cvs">
+          <div class="cv-dot scored"></div><div class="cv-dot scored"></div>
+          <div class="cv-dot new"></div><div class="cv-dot new"></div><div class="cv-dot new"></div>
+          <div class="cv-dot new"></div><div class="cv-dot new"></div><div class="cv-dot new"></div>
+        </div>
+        <div class="pjob-count">2 scored · 6 pending</div>
+      </div>
+      <div class="pjob">
+        <div class="pjob-skill">SKILL.md</div>
+        <div class="pjob-id">JOB-4824</div>
+        <div class="pjob-title">Data Analyst</div>
+        <div class="pjob-cvs">
+          <div class="cv-dot scored"></div><div class="cv-dot scored"></div><div class="cv-dot scored"></div>
+          <div class="cv-dot scored"></div><div class="cv-dot scored"></div><div class="cv-dot scored"></div>
+          <div class="cv-dot scored"></div><div class="cv-dot scored"></div><div class="cv-dot scored"></div>
+        </div>
+        <div class="pjob-count">9 scored · 0 pending</div>
+      </div>
+    </div>
+    <div style="margin-top:12px; font-size:11px; color:var(--muted); display:flex; gap:16px; align-items:center;">
+      <span style="display:flex;align-items:center;gap:5px;"><span style="width:10px;height:10px;background:var(--amber);border-radius:2px;display:inline-block;"></span> PENDING (new apply)</span>
+      <span style="display:flex;align-items:center;gap:5px;"><span style="width:10px;height:10px;background:var(--green);border-radius:2px;display:inline-block;"></span> SCORED</span>
+      <span style="display:flex;align-items:center;gap:5px;"><span style="width:10px;height:10px;background:var(--blue);border-radius:2px;display:inline-block;"></span> ARCHIVED</span>
+    </div>
+  </div>
+
+</div>
+
+<!-- SKILL.md + SCORING PROMPT -->
+<div class="slabel mb20">SKILL.md — The Scoring Rulebook</div>
+<div class="g2 mb28">
+
+  <!-- SKILL.md content -->
+  <div>
+    <div class="skillmd">
+<span class="md-h1">---</span><br>
+<span class="md-bold">name:</span> <span class="md-green">resume-scorer-data-engineering</span><br>
+<span class="md-bold">category:</span> <span class="md-green">data-engineering</span><br>
+<span class="md-bold">version:</span> <span class="md-green">1.2</span><br>
+<span class="md-bold">scoring_model:</span> <span class="md-green">claude-haiku-4</span><br>
+<span class="md-h1">---</span><br><br>
+
+<span class="md-h2">## Role</span><br>
+You are a senior technical recruiter scoring CVs for Data Engineering roles.<br>
+Score each CV against the provided JD on the dimensions below.<br>
+Return ONLY valid JSON. No prose.<br><br>
+
+<span class="md-h2">## Scoring Dimensions</span><br>
+<span class="md-bold">skills_match</span> (30): Required skills from JD found in CV.<br>
+Partial credit for related tech (Spark vs Flink = 80%).<br><br>
+
+<span class="md-bold">experience_relevance</span> (25): Domain + seniority alignment.<br>
+Penalise if YoE &lt; 70% of JD requirement.<br><br>
+
+<span class="md-bold">impact_evidence</span> (20): Quantified achievements, scale, outcomes.<br>
+"Led team" = 10pts. "Led team of 8, reduced latency 40%" = 20pts.<br><br>
+
+<span class="md-bold">tech_stack_depth</span> (15): Modern tooling, cloud, current.<br>
+Reward: Spark, dbt, Kafka, Airflow, vector DBs, LLM infra.<br><br>
+
+<span class="md-bold">education_cert</span> (10): Degree + relevant certifications.<br>
+AWS/GCP certs add 5pts each up to cap.<br><br>
+
+<span class="md-h2">## Hard Disqualifiers</span><br>
+<span class="md-red">- FAIL if YoE &lt; 50% of JD minimum</span><br>
+<span class="md-red">- FAIL if no relevant tech stack overlap</span><br>
+<span class="md-red">- FAIL if right-to-work flag = false</span><br><br>
+
+<span class="md-h2">## Output Schema</span><br>
+<span class="md-green">{"score": 0-100, "pass": bool, "shortlist": bool,</span><br>
+<span class="md-green">&nbsp;"dimensions": {...}, "flags": [...],</span><br>
+<span class="md-green">&nbsp;"summary": "2 sentence max"}</span>
+    </div>
+  </div>
+
+  <!-- How SKILL.md gets used -->
+  <div>
+    <div class="card" style="margin-bottom:14px;">
+      <div class="card-title"><span class="ct-dot" style="background:var(--purple);"></span> How SKILL.md Gets Resolved</div>
+      <div class="kv"><span class="kv-k">1. Job created</span><span class="kv-v">skill_md_key = "data-engineering"</span></div>
+      <div class="kv"><span class="kv-k">2. Score triggered</span><span class="kv-v">load blob://skills/data-engineering/SKILL.md</span></div>
+      <div class="kv"><span class="kv-k">3. Build prompt</span><span class="kv-v">SKILL.md body + JD text + CV text</span></div>
+      <div class="kv"><span class="kv-k">4. Cache SKILL.md</span><span class="kv-v">Redis TTL 1hr — same prefix reused</span></div>
+      <div class="kv"><span class="kv-k">5. Prompt cache</span><span class="kv-v">Anthropic caches static rubric prefix</span></div>
+      <div style="margin-top:12px; padding:10px; background:rgba(181,98,10,0.08); border-left:3px solid var(--amber); font-size:11px; color:var(--ink2); line-height:1.5;">
+        💡 One SKILL.md per <em>job category</em> (not per job). "Data Engineering", "AI Engineer", "Product Manager" etc. All jobs of same category share the same rubric — HR can tune one file to affect all roles of that type.
+      </div>
+    </div>
+
+    <!-- Score output example -->
+    <div class="score-card">
+      <div class="score-hdr">
+        <span>JOB-4821 · app_id: a8f3... · Priya Sharma</span>
+        <span>SHORTLISTED ✓</span>
+      </div>
+      <div class="score-body">
+        <div class="score-row">
+          <div class="score-dim">Skills Match (30)</div>
+          <div class="score-bar-w"><div class="score-bar" style="width:87%;background:var(--green);"></div></div>
+          <div class="score-num">26</div>
+        </div>
+        <div class="score-row">
+          <div class="score-dim">Experience (25)</div>
+          <div class="score-bar-w"><div class="score-bar" style="width:80%;background:var(--blue);"></div></div>
+          <div class="score-num">20</div>
+        </div>
+        <div class="score-row">
+          <div class="score-dim">Impact Evidence (20)</div>
+          <div class="score-bar-w"><div class="score-bar" style="width:75%;background:var(--purple);"></div></div>
+          <div class="score-num">15</div>
+        </div>
+        <div class="score-row">
+          <div class="score-dim">Tech Stack (15)</div>
+          <div class="score-bar-w"><div class="score-bar" style="width:93%;background:var(--teal);"></div></div>
+          <div class="score-num">14</div>
+        </div>
+        <div class="score-row">
+          <div class="score-dim">Education (10)</div>
+          <div class="score-bar-w"><div class="score-bar" style="width:70%;background:var(--amber);"></div></div>
+          <div class="score-num">7</div>
+        </div>
+        <div class="score-total">
+          <div>
+            <div class="score-total-label">Composite Score</div>
+            <div style="font-size:10px;color:var(--muted);font-family:'JetBrains Mono',monospace;">pass=true · shortlist=true</div>
+          </div>
+          <div class="score-total-num">82 / 100</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- TRIGGER TYPES -->
+<div class="slabel mb20">Score Trigger Types</div>
+<div class="g3 mb28">
+  <div class="card">
+    <div class="trigger-row">
+      <div class="t-icon">🕐</div>
+      <div>
+        <div class="t-name">Scheduled Trigger</div>
+        <div class="t-desc">Cron job runs nightly. Picks all jobs with PENDING CVs. Scores in bulk overnight. Cheapest option.</div>
+        <div class="t-tag" style="background:rgba(26,74,138,0.08);color:var(--blue);border:1px solid var(--blue);">nightly · low cost</div>
+      </div>
+    </div>
+    <div class="trigger-row">
+      <div class="t-icon">📊</div>
+      <div>
+        <div class="t-name">Threshold Trigger</div>
+        <div class="t-desc">Auto-fires when a job crosses N applicants (e.g. 100). Good for hot roles that fill fast.</div>
+        <div class="t-tag" style="background:rgba(91,45,138,0.08);color:var(--purple);border:1px solid var(--purple);">event-driven</div>
+      </div>
+    </div>
+  </div>
+  <div class="card">
+    <div class="trigger-row">
+      <div class="t-icon">👆</div>
+      <div>
+        <div class="t-name">Manual Trigger</div>
+        <div class="t-desc">Recruiter clicks "Score Now" in dashboard for a specific job. Useful for urgent or VIP roles.</div>
+        <div class="t-tag" style="background:rgba(10,107,107,0.08);color:var(--teal);border:1px solid var(--teal);">on-demand</div>
+      </div>
+    </div>
+    <div class="trigger-row">
+      <div class="t-icon">🔔</div>
+      <div>
+        <div class="t-name">Deadline Trigger</div>
+        <div class="t-desc">Job closing date fires a final score of ALL pending CVs. Ensures nothing is missed before shortlist deadline.</div>
+        <div class="t-tag" style="background:rgba(181,98,10,0.08);color:var(--amber);border:1px solid var(--amber);">date-based</div>
+      </div>
+    </div>
+  </div>
+  <div class="card">
+    <div class="card-title"><span class="ct-dot" style="background:var(--green);"></span> Incremental Re-Scoring</div>
+    <div style="font-size:11px;color:var(--ink2);line-height:1.6;margin-bottom:10px;">
+      Only PENDING CVs are scored each run. Already-scored CVs are skipped unless:<br><br>
+      • SKILL.md version changed<br>
+      • JD was updated by recruiter<br>
+      • Recruiter explicitly requests full re-score<br><br>
+      This keeps cost minimal on subsequent runs. A job open for 30 days only pays for each CV once.
+    </div>
+    <div class="kv"><span class="kv-k">Skip condition</span><span class="kv-v">status = SCORED AND skill_ver unchanged</span></div>
+  </div>
+</div>
+
+<!-- SCALE MATH -->
+<div class="slabel mb20">Scale Math — Cost per Trigger Run</div>
+<div class="g2 mb28">
+  <div class="card">
+    <div class="card-title"><span class="ct-dot" style="background:var(--red);"></span> Daily Incremental Run (typical)</div>
+    <div class="kv"><span class="kv-k">New applications / day</span><span class="kv-v">~3,000 across 8K jobs</span></div>
+    <div class="kv"><span class="kv-k">Parse + extract</span><span class="kv-v">~$0.30</span></div>
+    <div class="kv"><span class="kv-k">LLM score (Haiku batch)</span><span class="kv-v">~$0.75</span></div>
+    <div class="kv"><span class="kv-k">Prompt cache savings</span><span class="kv-v">~60% off (static SKILL.md prefix)</span></div>
+    <div class="kv" style="border-top:1px solid var(--ink);margin-top:6px;padding-top:6px;">
+      <span class="kv-k" style="font-weight:700;">Daily cost</span>
+      <span class="kv-v" style="color:var(--green);font-size:13px;font-weight:700;">~$1–2 / day</span>
+    </div>
+  </div>
+  <div class="card">
+    <div class="card-title"><span class="ct-dot" style="background:var(--amber);"></span> Full Batch Run (1M historic CVs)</div>
+    <div class="kv"><span class="kv-k">Parse all CVs</span><span class="kv-v">~$100</span></div>
+    <div class="kv"><span class="kv-k">Embed + ANN pre-screen</span><span class="kv-v">~$30</span></div>
+    <div class="kv"><span class="kv-k">LLM score after ANN filter</span><span class="kv-v">~$50</span></div>
+    <div class="kv"><span class="kv-k">Compute (AKS Spot, 4hr)</span><span class="kv-v">~$30</span></div>
+    <div class="kv" style="border-top:1px solid var(--ink);margin-top:6px;padding-top:6px;">
+      <span class="kv-k" style="font-weight:700;">One-time backfill cost</span>
+      <span class="kv-v" style="color:var(--amber);font-size:13px;font-weight:700;">~$210 total</span>
+    </div>
+  </div>
+</div>
+
+<!-- FOOTER -->
+<div class="footer">
+  <span>RESUME_TRIAGE_v2 · Job-Partitioned Async · SKILL.md Scoring</span>
+  <div style="display:flex;gap:16px;">
+    <span>Apply = store only</span>
+    <span>·</span>
+    <span>Score = separate trigger</span>
+    <span>·</span>
+    <span>SKILL.md = rules per category</span>
+  </div>
+</div>
+
+</body>
+</html>

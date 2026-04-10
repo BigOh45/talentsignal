@@ -1,0 +1,896 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Resume Triage — Scalable Architecture</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;700&family=IBM+Plex+Sans:wght@300;400;500;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0a0c10;
+    --surface: #111318;
+    --surface2: #181c24;
+    --border: #1e2330;
+    --accent: #00e5a0;
+    --accent2: #0088ff;
+    --accent3: #ff6b35;
+    --accent4: #c084fc;
+    --warn: #fbbf24;
+    --text: #e2e8f0;
+    --muted: #64748b;
+    --dim: #334155;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'IBM Plex Sans', sans-serif;
+    font-size: 13px;
+    line-height: 1.5;
+    min-height: 100vh;
+    padding: 32px 24px;
+  }
+
+  .mono { font-family: 'IBM Plex Mono', monospace; }
+
+  /* ─── Header ─────────────────────────────────────────────── */
+  .header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 40px;
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 24px;
+  }
+  .header-left h1 {
+    font-size: 22px;
+    font-weight: 700;
+    letter-spacing: -0.5px;
+    color: var(--accent);
+    font-family: 'IBM Plex Mono', monospace;
+  }
+  .header-left p {
+    color: var(--muted);
+    font-size: 12px;
+    margin-top: 4px;
+  }
+  .header-stats {
+    display: flex;
+    gap: 24px;
+  }
+  .stat {
+    text-align: right;
+  }
+  .stat-val {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--accent3);
+  }
+  .stat-label {
+    font-size: 10px;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+
+  /* ─── Section Labels ─────────────────────────────────── */
+  .section-label {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 9px;
+    text-transform: uppercase;
+    letter-spacing: 2px;
+    color: var(--muted);
+    margin-bottom: 10px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .section-label::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: var(--border);
+  }
+
+  /* ─── Pipeline Row ───────────────────────────────────── */
+  .pipeline {
+    display: flex;
+    align-items: stretch;
+    gap: 0;
+    margin-bottom: 40px;
+    overflow-x: auto;
+    padding-bottom: 4px;
+  }
+
+  .stage {
+    flex: 1;
+    min-width: 155px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-right: none;
+    padding: 16px 14px;
+    position: relative;
+    transition: border-color 0.2s;
+  }
+  .stage:last-child { border-right: 1px solid var(--border); border-radius: 0 6px 6px 0; }
+  .stage:first-child { border-radius: 6px 0 0 6px; }
+
+  .stage::after {
+    content: '›';
+    position: absolute;
+    right: -10px;
+    top: 50%;
+    transform: translateY(-50%);
+    color: var(--dim);
+    font-size: 20px;
+    z-index: 2;
+  }
+  .stage:last-child::after { display: none; }
+
+  .stage-num {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 9px;
+    color: var(--muted);
+    margin-bottom: 6px;
+  }
+  .stage-title {
+    font-weight: 600;
+    font-size: 12px;
+    margin-bottom: 6px;
+    color: var(--text);
+  }
+  .stage-desc {
+    font-size: 11px;
+    color: var(--muted);
+    line-height: 1.4;
+  }
+  .stage-metric {
+    margin-top: 10px;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10px;
+    padding: 4px 8px;
+    border-radius: 3px;
+    display: inline-block;
+  }
+
+  .s-intake .stage-metric { background: rgba(0,229,160,0.1); color: var(--accent); }
+  .s-parse .stage-metric { background: rgba(0,136,255,0.12); color: var(--accent2); }
+  .s-embed .stage-metric { background: rgba(192,132,252,0.12); color: var(--accent4); }
+  .s-match .stage-metric { background: rgba(255,107,53,0.12); color: var(--accent3); }
+  .s-score .stage-metric { background: rgba(251,191,36,0.12); color: var(--warn); }
+  .s-out .stage-metric { background: rgba(0,229,160,0.1); color: var(--accent); }
+
+  /* stage accent bar */
+  .s-intake { border-top: 2px solid var(--accent); }
+  .s-parse { border-top: 2px solid var(--accent2); }
+  .s-embed { border-top: 2px solid var(--accent4); }
+  .s-match { border-top: 2px solid var(--accent3); }
+  .s-score { border-top: 2px solid var(--warn); }
+  .s-out { border-top: 2px solid var(--accent); }
+
+  /* ─── Two-col layout ─────────────────────────────────── */
+  .two-col {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    margin-bottom: 16px;
+  }
+  .three-col {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 16px;
+    margin-bottom: 16px;
+  }
+  .four-col {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 12px;
+    margin-bottom: 24px;
+  }
+
+  /* ─── Cards ──────────────────────────────────────────── */
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 16px;
+  }
+  .card-title {
+    font-weight: 600;
+    font-size: 12px;
+    margin-bottom: 10px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .dot {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    display: inline-block;
+    flex-shrink: 0;
+  }
+  .dot-green { background: var(--accent); }
+  .dot-blue { background: var(--accent2); }
+  .dot-orange { background: var(--accent3); }
+  .dot-purple { background: var(--accent4); }
+  .dot-yellow { background: var(--warn); }
+
+  .row-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 5px 0;
+    border-bottom: 1px solid var(--border);
+    font-size: 11px;
+  }
+  .row-item:last-child { border-bottom: none; }
+  .row-key { color: var(--muted); }
+  .row-val { font-family: 'IBM Plex Mono', monospace; color: var(--text); }
+  .row-val.green { color: var(--accent); }
+  .row-val.blue { color: var(--accent2); }
+  .row-val.orange { color: var(--accent3); }
+  .row-val.yellow { color: var(--warn); }
+  .row-val.purple { color: var(--accent4); }
+
+  /* ─── Funnel ─────────────────────────────────────────── */
+  .funnel-wrap {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 16px;
+  }
+  .funnel-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 8px;
+  }
+  .funnel-bar-wrap {
+    flex: 1;
+    background: var(--border);
+    height: 22px;
+    border-radius: 3px;
+    overflow: hidden;
+  }
+  .funnel-bar {
+    height: 100%;
+    border-radius: 3px;
+    display: flex;
+    align-items: center;
+    padding-left: 8px;
+    font-size: 10px;
+    font-family: 'IBM Plex Mono', monospace;
+    white-space: nowrap;
+    transition: width 0.8s ease;
+  }
+  .funnel-label {
+    font-size: 10px;
+    color: var(--muted);
+    width: 150px;
+    flex-shrink: 0;
+    text-align: right;
+  }
+  .funnel-count {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10px;
+    width: 80px;
+    flex-shrink: 0;
+    text-align: right;
+    color: var(--muted);
+  }
+
+  /* ─── Cost Table ─────────────────────────────────────── */
+  .cost-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 11px;
+  }
+  .cost-table th {
+    text-align: left;
+    padding: 6px 10px;
+    color: var(--muted);
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    border-bottom: 1px solid var(--border);
+    font-weight: 500;
+  }
+  .cost-table td {
+    padding: 7px 10px;
+    border-bottom: 1px solid var(--border);
+    font-family: 'IBM Plex Mono', monospace;
+    vertical-align: top;
+  }
+  .cost-table tr:last-child td { border-bottom: none; }
+  .cost-table td:first-child { font-family: 'IBM Plex Sans', sans-serif; color: var(--text); }
+  .cost-table .total-row td {
+    font-weight: 700;
+    color: var(--accent);
+    background: rgba(0,229,160,0.05);
+    border-top: 1px solid var(--accent);
+    border-bottom: none;
+  }
+
+  /* ─── Scoring Rules ──────────────────────────────────── */
+  .rule-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 8px 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .rule-item:last-child { border-bottom: none; }
+  .rule-weight {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    min-width: 36px;
+    color: var(--accent3);
+    font-weight: 700;
+  }
+  .rule-name { font-size: 11px; font-weight: 500; }
+  .rule-detail { font-size: 10px; color: var(--muted); margin-top: 2px; }
+
+  /* ─── Infra Chips ────────────────────────────────────── */
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+  .chip {
+    font-size: 10px;
+    font-family: 'IBM Plex Mono', monospace;
+    padding: 3px 8px;
+    border-radius: 3px;
+    border: 1px solid;
+  }
+  .chip-green { border-color: var(--accent); color: var(--accent); background: rgba(0,229,160,0.06); }
+  .chip-blue { border-color: var(--accent2); color: var(--accent2); background: rgba(0,136,255,0.06); }
+  .chip-orange { border-color: var(--accent3); color: var(--accent3); background: rgba(255,107,53,0.06); }
+  .chip-purple { border-color: var(--accent4); color: var(--accent4); background: rgba(192,132,252,0.06); }
+  .chip-yellow { border-color: var(--warn); color: var(--warn); background: rgba(251,191,36,0.06); }
+
+  /* ─── Alert box ──────────────────────────────────────── */
+  .alert {
+    padding: 10px 14px;
+    border-radius: 4px;
+    font-size: 11px;
+    margin-bottom: 12px;
+    border-left: 3px solid;
+  }
+  .alert-green { border-color: var(--accent); background: rgba(0,229,160,0.06); color: var(--accent); }
+  .alert-orange { border-color: var(--accent3); background: rgba(255,107,53,0.06); color: var(--accent3); }
+
+  .mb16 { margin-bottom: 16px; }
+  .mb24 { margin-bottom: 24px; }
+  .mb32 { margin-bottom: 32px; }
+
+  /* ─── Scale note ─────────────────────────────────────── */
+  .scale-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    background: rgba(255,107,53,0.1);
+    border: 1px solid rgba(255,107,53,0.3);
+    padding: 3px 9px;
+    border-radius: 20px;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10px;
+    color: var(--accent3);
+  }
+  .pulse {
+    width: 5px; height: 5px;
+    border-radius: 50%;
+    background: var(--accent3);
+    animation: pulse 1.5s infinite;
+  }
+  @keyframes pulse {
+    0%,100% { opacity: 1; }
+    50% { opacity: 0.3; }
+  }
+</style>
+</head>
+<body>
+
+<!-- Header -->
+<div class="header">
+  <div class="header-left">
+    <h1>// RESUME_TRIAGE_SYSTEM</h1>
+    <p>Scalable · Cost-Optimised · Multi-Stage Pipeline Architecture</p>
+  </div>
+  <div class="header-stats">
+    <div class="stat">
+      <div class="stat-val">1M</div>
+      <div class="stat-label">Resumes / Run</div>
+    </div>
+    <div class="stat">
+      <div class="stat-val">8K</div>
+      <div class="stat-label">Active Jobs</div>
+    </div>
+    <div class="stat">
+      <div class="stat-val">8B</div>
+      <div class="stat-label">Naive Pairs</div>
+    </div>
+    <div class="stat">
+      <div class="stat-val" style="color:var(--accent)">~40M</div>
+      <div class="stat-label">Actual Scored</div>
+    </div>
+  </div>
+</div>
+
+<!-- Key Insight -->
+<div class="alert alert-orange mb24">
+  ⚡ KEY INSIGHT: Never score 1M × 8K = 8B pairs. Use a 3-phase funnel — Classify → ANN Vector Search → LLM Score. Only top candidates reach LLM, reducing cost by 99.5%.
+</div>
+
+<!-- ─── PIPELINE ─────────────────────────────────── -->
+<div class="section-label mb16">Ingestion → Scoring Pipeline</div>
+
+<div class="pipeline mb32">
+  <div class="stage s-intake">
+    <div class="stage-num">01</div>
+    <div class="stage-title">Intake & Queue</div>
+    <div class="stage-desc">Upload CVs via S3 / Blob. SQS/Kafka fanout. Dedup by hash. Rate-limit at edge.</div>
+    <div class="stage-metric">1M docs → Queue</div>
+  </div>
+  <div class="stage s-parse">
+    <div class="stage-num">02</div>
+    <div class="stage-title">Parse & Extract</div>
+    <div class="stage-desc">PDF/DOCX parse. Extract skills, title, yoe, edu, location via NER. Structured JSON.</div>
+    <div class="stage-metric">~2s / resume</div>
+  </div>
+  <div class="stage s-embed">
+    <div class="stage-num">03</div>
+    <div class="stage-title">Embed → ANN Index</div>
+    <div class="stage-desc">Batch embed with text-embedding-3-small. Store in Weaviate / OpenSearch kNN. Pre-embed all JDs.</div>
+    <div class="stage-metric">1536-dim vectors</div>
+  </div>
+  <div class="stage s-match">
+    <div class="stage-num">04</div>
+    <div class="stage-title">ANN Pre-Screen</div>
+    <div class="stage-desc">For each JD, ANN top-K (K=50) candidates. Cosine similarity gate ≥ 0.72. Kills 98% of pairs.</div>
+    <div class="stage-metric">8K × 50 = 400K</div>
+  </div>
+  <div class="stage s-score">
+    <div class="stage-num">05</div>
+    <div class="stage-title">Rule + LLM Score</div>
+    <div class="stage-desc">Hard rules first (HK filter). Then LLM batch scoring with structured rubric. Weighted composite.</div>
+    <div class="stage-metric">Haiku / prompt cache</div>
+  </div>
+  <div class="stage s-out">
+    <div class="stage-num">06</div>
+    <div class="stage-title">Shortlist & Notify</div>
+    <div class="stage-desc">Rank by score. Top-N per JD to recruiter dashboard. Webhook + email. Audit trail.</div>
+    <div class="stage-metric">Top 10 per JD</div>
+  </div>
+</div>
+
+<!-- ─── FUNNEL + SCORING RULES ─────────────────── -->
+<div class="two-col mb24">
+
+  <!-- Funnel -->
+  <div>
+    <div class="section-label mb16">Volume Funnel (per batch run)</div>
+    <div class="funnel-wrap">
+      <div class="funnel-row">
+        <div class="funnel-label">Raw Uploads</div>
+        <div class="funnel-bar-wrap">
+          <div class="funnel-bar" style="width:100%; background:var(--accent2);">1,000,000</div>
+        </div>
+      </div>
+      <div class="funnel-row">
+        <div class="funnel-label">After Dedup / Parse</div>
+        <div class="funnel-bar-wrap">
+          <div class="funnel-bar" style="width:85%; background:#0070d4;">850,000</div>
+        </div>
+      </div>
+      <div class="funnel-row">
+        <div class="funnel-label">Post Hard-Filter</div>
+        <div class="funnel-bar-wrap">
+          <div class="funnel-bar" style="width:45%; background:var(--accent4);">400,000</div>
+        </div>
+      </div>
+      <div class="funnel-row">
+        <div class="funnel-label">ANN Top-K Pool</div>
+        <div class="funnel-bar-wrap">
+          <div class="funnel-bar" style="width:12%; background:var(--accent3);">~100K unique</div>
+        </div>
+      </div>
+      <div class="funnel-row">
+        <div class="funnel-label">LLM Scored Pairs</div>
+        <div class="funnel-bar-wrap">
+          <div class="funnel-bar" style="width:5%; background:var(--warn); color:#1a0a00;">40K</div>
+        </div>
+      </div>
+      <div class="funnel-row">
+        <div class="funnel-label">Final Shortlisted</div>
+        <div class="funnel-bar-wrap">
+          <div class="funnel-bar" style="width:1%; background:var(--accent); min-width:55px; color:#001a0d;">80K</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Scoring Rules -->
+  <div>
+    <div class="section-label mb16">Scoring Rubric (Configurable)</div>
+    <div class="card">
+      <div class="rule-item">
+        <div class="rule-weight">30%</div>
+        <div>
+          <div class="rule-name">Skills Match</div>
+          <div class="rule-detail">JD required skills ∩ CV skills. Exact + semantic fuzzy. Per-skill weights.</div>
+        </div>
+      </div>
+      <div class="rule-item">
+        <div class="rule-weight">20%</div>
+        <div>
+          <div class="rule-name">Experience Relevance</div>
+          <div class="rule-detail">Title similarity + YoE range check. Domain alignment via embedding cosine.</div>
+        </div>
+      </div>
+      <div class="rule-item">
+        <div class="rule-weight">20%</div>
+        <div>
+          <div class="rule-name">Seniority Fit</div>
+          <div class="rule-detail">Inferred level vs. JD level. YoE bands. Hard disqualifier if mismatch > 2 levels.</div>
+        </div>
+      </div>
+      <div class="rule-item">
+        <div class="rule-weight">15%</div>
+        <div>
+          <div class="rule-name">Education</div>
+          <div class="rule-detail">Degree level + field. Institution tier optional. Normalised ISCED hierarchy.</div>
+        </div>
+      </div>
+      <div class="rule-item">
+        <div class="rule-weight">10%</div>
+        <div>
+          <div class="rule-name">Location / Availability</div>
+          <div class="rule-detail">Remote/onsite preference. Timezone match. Visa/work-auth flag.</div>
+        </div>
+      </div>
+      <div class="rule-item">
+        <div class="rule-weight">5%</div>
+        <div>
+          <div class="rule-name">CV Quality Signal</div>
+          <div class="rule-detail">Completeness, recency of updates, quantified achievements.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ─── INFRASTRUCTURE ─────────────────────────── -->
+<div class="section-label mb16">Infrastructure Design</div>
+
+<div class="three-col mb24">
+
+  <!-- Compute -->
+  <div class="card">
+    <div class="card-title"><span class="dot dot-blue"></span> Compute Layer</div>
+    <div class="row-item">
+      <span class="row-key">Parse Workers</span>
+      <span class="row-val blue">K8s HPA pods</span>
+    </div>
+    <div class="row-item">
+      <span class="row-key">Embed Batch</span>
+      <span class="row-val blue">GPU node / OpenAI batch API</span>
+    </div>
+    <div class="row-item">
+      <span class="row-key">ANN Search</span>
+      <span class="row-val blue">Weaviate / OpenSearch</span>
+    </div>
+    <div class="row-item">
+      <span class="row-key">LLM Scoring</span>
+      <span class="row-val blue">Claude Haiku batch</span>
+    </div>
+    <div class="row-item">
+      <span class="row-key">Orchestration</span>
+      <span class="row-val blue">Airflow / Prefect</span>
+    </div>
+    <div class="chips">
+      <span class="chip chip-blue">AKS</span>
+      <span class="chip chip-blue">Spot nodes</span>
+      <span class="chip chip-blue">HPA autoscale</span>
+    </div>
+  </div>
+
+  <!-- Storage -->
+  <div class="card">
+    <div class="card-title"><span class="dot dot-green"></span> Storage Layer</div>
+    <div class="row-item">
+      <span class="row-key">Raw CVs</span>
+      <span class="row-val green">Azure Blob / S3</span>
+    </div>
+    <div class="row-item">
+      <span class="row-key">Parsed JSON</span>
+      <span class="row-val green">PostgreSQL + JSONB</span>
+    </div>
+    <div class="row-item">
+      <span class="row-key">Vectors</span>
+      <span class="row-val green">Weaviate cluster</span>
+    </div>
+    <div class="row-item">
+      <span class="row-key">Scores / Results</span>
+      <span class="row-val green">PostgreSQL</span>
+    </div>
+    <div class="row-item">
+      <span class="row-key">Cache (JD embeds)</span>
+      <span class="row-val green">Redis</span>
+    </div>
+    <div class="chips">
+      <span class="chip chip-green">Tier: hot/warm/cold</span>
+      <span class="chip chip-green">TTL eviction</span>
+    </div>
+  </div>
+
+  <!-- Queue / Messaging -->
+  <div class="card">
+    <div class="card-title"><span class="dot dot-orange"></span> Messaging & Flow</div>
+    <div class="row-item">
+      <span class="row-key">Intake queue</span>
+      <span class="row-val orange">Kafka / Azure SB</span>
+    </div>
+    <div class="row-item">
+      <span class="row-key">Dead-letter queue</span>
+      <span class="row-val orange">DLQ with retry</span>
+    </div>
+    <div class="row-item">
+      <span class="row-key">Score fanout</span>
+      <span class="row-val orange">Event Grid</span>
+    </div>
+    <div class="row-item">
+      <span class="row-key">Backpressure</span>
+      <span class="row-val orange">Consumer lag metrics</span>
+    </div>
+    <div class="row-item">
+      <span class="row-key">Dedup</span>
+      <span class="row-val orange">SHA-256 Bloom filter</span>
+    </div>
+    <div class="chips">
+      <span class="chip chip-orange">Exactly-once</span>
+      <span class="chip chip-orange">Partition by JD</span>
+    </div>
+  </div>
+</div>
+
+<!-- ─── COST MODEL ─────────────────────────────── -->
+<div class="section-label mb16">Cost Model — 1M Resumes × 8K Jobs</div>
+
+<div class="two-col mb24">
+
+  <div class="card">
+    <table class="cost-table">
+      <thead>
+        <tr>
+          <th>Component</th>
+          <th>Volume</th>
+          <th>Unit Cost</th>
+          <th>Total</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>PDF Parse (self-hosted)</td>
+          <td>1M docs</td>
+          <td>~$0.0001</td>
+          <td style="color:var(--accent)">~$100</td>
+        </tr>
+        <tr>
+          <td>Embedding (text-emb-3-small)</td>
+          <td>1M × 512 tok avg</td>
+          <td>$0.02/1M tok</td>
+          <td style="color:var(--accent)">~$10</td>
+        </tr>
+        <tr>
+          <td>JD Embedding (cached Redis)</td>
+          <td>8K JDs × 800 tok</td>
+          <td>cached</td>
+          <td style="color:var(--muted)">~$0.13</td>
+        </tr>
+        <tr>
+          <td>ANN Search (Weaviate)</td>
+          <td>8K queries × top-50</td>
+          <td>infra cost</td>
+          <td style="color:var(--accent)">~$20</td>
+        </tr>
+        <tr>
+          <td>LLM Scoring (Haiku)</td>
+          <td>40K pairs × ~800 tok</td>
+          <td>$0.25/1M in</td>
+          <td style="color:var(--accent)">~$8</td>
+        </tr>
+        <tr>
+          <td>Compute (AKS Spot)</td>
+          <td>~6hr batch run</td>
+          <td>spot pricing</td>
+          <td style="color:var(--accent)">~$40</td>
+        </tr>
+        <tr>
+          <td>Storage + DB</td>
+          <td>monthly</td>
+          <td>blob + pg</td>
+          <td style="color:var(--accent)">~$30</td>
+        </tr>
+        <tr class="total-row">
+          <td>TOTAL PER RUN</td>
+          <td></td>
+          <td></td>
+          <td>~$208</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div>
+    <div class="card mb16">
+      <div class="card-title"><span class="dot dot-yellow"></span> Cost Optimisation Levers</div>
+      <div class="rule-item">
+        <div class="rule-weight" style="color:var(--warn)">①</div>
+        <div>
+          <div class="rule-name">Prompt Caching</div>
+          <div class="rule-detail">Cache the static scoring rubric prefix in Claude. Saves ~60% of LLM tokens on repeated batches.</div>
+        </div>
+      </div>
+      <div class="rule-item">
+        <div class="rule-weight" style="color:var(--warn)">②</div>
+        <div>
+          <div class="rule-name">ANN Kills 98% Pairs</div>
+          <div class="rule-detail">Only 40K pairs reach LLM instead of 8B. Single biggest cost lever in the system.</div>
+        </div>
+      </div>
+      <div class="rule-item">
+        <div class="rule-weight" style="color:var(--warn)">③</div>
+        <div>
+          <div class="rule-name">Hard Rules Before LLM</div>
+          <div class="rule-detail">Location, visa, YoE band, degree hard gates. Cuts LLM calls by another 30-40%.</div>
+        </div>
+      </div>
+      <div class="rule-item">
+        <div class="rule-weight" style="color:var(--warn)">④</div>
+        <div>
+          <div class="rule-name">Batch API + Spot Nodes</div>
+          <div class="rule-detail">Use Anthropic Batch API (50% discount). AKS Spot for parse/embed workers.</div>
+        </div>
+      </div>
+      <div class="rule-item">
+        <div class="rule-weight" style="color:var(--warn)">⑤</div>
+        <div>
+          <div class="rule-name">Embed Cache TTL</div>
+          <div class="rule-detail">Resume vectors cached 30 days. Re-embed only on CV update. JD vectors cached until JD changes.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ─── SCALABILITY DESIGN ─────────────────────── -->
+<div class="section-label mb16">Scalability & Resilience Design</div>
+
+<div class="four-col mb24">
+  <div class="card">
+    <div class="card-title"><span class="dot dot-green"></span> Horizontal Scale</div>
+    <div style="font-size:11px; color:var(--muted); line-height:1.6;">
+      Parse & embed workers scale via K8s HPA on queue lag. Stateless — just consume from Kafka partition.
+    </div>
+    <div class="chips" style="margin-top:10px;">
+      <span class="chip chip-green">HPA</span>
+      <span class="chip chip-green">Stateless</span>
+    </div>
+  </div>
+  <div class="card">
+    <div class="card-title"><span class="dot dot-blue"></span> Idempotency</div>
+    <div style="font-size:11px; color:var(--muted); line-height:1.6;">
+      SHA-256 hash of raw CV file = dedup key. Bloom filter at intake rejects duplicates instantly.
+    </div>
+    <div class="chips" style="margin-top:10px;">
+      <span class="chip chip-blue">Bloom filter</span>
+      <span class="chip chip-blue">Hash dedup</span>
+    </div>
+  </div>
+  <div class="card">
+    <div class="card-title"><span class="dot dot-orange"></span> Fault Tolerance</div>
+    <div style="font-size:11px; color:var(--muted); line-height:1.6;">
+      DLQ for failed parse/embed. Retry with exponential backoff × 3. Poisoned CVs quarantined.
+    </div>
+    <div class="chips" style="margin-top:10px;">
+      <span class="chip chip-orange">DLQ</span>
+      <span class="chip chip-orange">Retry backoff</span>
+    </div>
+  </div>
+  <div class="card">
+    <div class="card-title"><span class="dot dot-purple"></span> Observability</div>
+    <div style="font-size:11px; color:var(--muted); line-height:1.6;">
+      Per-stage latency, throughput, error rate. LLM token usage per job. Score distribution dashboards.
+    </div>
+    <div class="chips" style="margin-top:10px;">
+      <span class="chip chip-purple">Prometheus</span>
+      <span class="chip chip-purple">Grafana</span>
+    </div>
+  </div>
+</div>
+
+<!-- ─── BIAS & COMPLIANCE ──────────────────────── -->
+<div class="section-label mb16">Bias, Compliance & Human-in-the-Loop</div>
+<div class="two-col mb24">
+  <div class="card">
+    <div class="card-title"><span class="dot dot-yellow"></span> Fairness Controls</div>
+    <div class="row-item">
+      <span class="row-key">PII Stripping</span>
+      <span class="row-val yellow">Name, photo, DOB removed pre-score</span>
+    </div>
+    <div class="row-item">
+      <span class="row-key">Blind Scoring</span>
+      <span class="row-val yellow">LLM prompt receives skill/exp only</span>
+    </div>
+    <div class="row-item">
+      <span class="row-key">Score Audit Trail</span>
+      <span class="row-val yellow">All inputs + outputs logged</span>
+    </div>
+    <div class="row-item">
+      <span class="row-key">Bias Detection</span>
+      <span class="row-val yellow">Score distribution by cohort weekly</span>
+    </div>
+    <div class="row-item">
+      <span class="row-key">Explainability</span>
+      <span class="row-val yellow">Per-dimension breakdown to recruiter</span>
+    </div>
+  </div>
+  <div class="card">
+    <div class="card-title"><span class="dot dot-purple"></span> Human-in-the-Loop Gates</div>
+    <div class="row-item">
+      <span class="row-key">Threshold tuning</span>
+      <span class="row-val purple">Recruiter sets per-JD cutoff</span>
+    </div>
+    <div class="row-item">
+      <span class="row-key">Score override</span>
+      <span class="row-val purple">Recruiter can promote/reject manually</span>
+    </div>
+    <div class="row-item">
+      <span class="row-key">Feedback loop</span>
+      <span class="row-val purple">Hire outcome → retrain weights</span>
+    </div>
+    <div class="row-item">
+      <span class="row-key">Review queue</span>
+      <span class="row-val purple">Score 55–70 sent for human review</span>
+    </div>
+    <div class="row-item">
+      <span class="row-key">Model refresh</span>
+      <span class="row-val purple">Quarterly rubric re-calibration</span>
+    </div>
+  </div>
+</div>
+
+<!-- ─── TECH STACK ─────────────────────────────── -->
+<div class="section-label mb16">Recommended Tech Stack</div>
+<div class="card mb24">
+  <div style="display:flex; flex-wrap:wrap; gap:8px; align-items:center;">
+    <span class="chip chip-blue">AKS (Kubernetes)</span>
+    <span class="chip chip-orange">Kafka / Azure Service Bus</span>
+    <span class="chip chip-green">Weaviate (ANN)</span>
+    <span class="chip chip-purple">text-embedding-3-small</span>
+    <span class="chip chip-yellow">Claude Haiku (Batch API)</span>
+    <span class="chip chip-blue">PostgreSQL + JSONB</span>
+    <span class="chip chip-green">Redis (cache)</span>
+    <span class="chip chip-orange">Azure Blob / S3</span>
+    <span class="chip chip-purple">Airflow / Prefect</span>
+    <span class="chip chip-blue">FastAPI (results API)</span>
+    <span class="chip chip-green">Prometheus + Grafana</span>
+    <span class="chip chip-yellow">OpenLineage (audit)</span>
+    <span class="chip chip-orange">Python (workers)</span>
+    <span class="chip chip-purple">Pydantic (validation)</span>
+  </div>
+</div>
+
+<!-- Footer -->
+<div style="display:flex; justify-content:space-between; align-items:center; border-top:1px solid var(--border); padding-top:16px;">
+  <div style="font-family:'IBM Plex Mono',monospace; font-size:10px; color:var(--muted);">
+    RESUME_TRIAGE_SYS_v1 · XYZ AI Platform · 2026
+  </div>
+  <div style="display:flex;gap:12px;">
+    <div class="scale-badge"><span class="pulse"></span>1M+ resumes supported</div>
+    <div class="scale-badge"><span class="pulse"></span>~$208 / full run</div>
+  </div>
+</div>
+
+</body>
+</html>
